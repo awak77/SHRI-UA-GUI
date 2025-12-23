@@ -11,6 +11,8 @@ from tkinter import scrolledtext
 import threading
 import queue
 import sys
+import shlex  # per parsing custom args
+from datetime import datetime
 
 # === Funzioni Helper per Gestione File ===
 def get_resource_path(relative_path):
@@ -478,10 +480,26 @@ class ConPTYTerminal:
             hover_color="darkgray"
         )
         self.clear_btn.pack(side="left")
+        
+        # Pulsante Toggle Logging
+        self.log_toggle_btn = ctk.CTkButton(
+            self.input_frame,
+            text="📝 Log ON",
+            command=self.toggle_logging_ui,
+            width=90,
+            fg_color="blue",
+            hover_color="darkblue"
+        )
+        self.log_toggle_btn.pack(side="left", padx=(5, 0))
 
         # Storia comandi
         self.command_history = []
         self.history_index = -1
+
+        # Sistema di logging
+        self.log_enabled = True
+        self.log_file = None
+        self.setup_logging()
 
         # Avvia il terminale ConPTY
         self.start_conpty()
@@ -660,6 +678,9 @@ class ConPTYTerminal:
         """Scrive nel terminale interpretando i codici ANSI con throttling sui progress bar rumorosi."""
         if not text:
             return
+        
+        # Logga nel file
+        self.log_to_file(text)
 
         try:
             cleaned = self._strip_control_sequences(text)
@@ -824,6 +845,126 @@ class ConPTYTerminal:
             if self.history_index < len(self.command_history):
                 self.command_entry.insert(0, self.command_history[self.history_index])
 
+    def setup_logging(self):
+        """Configura il file di log con timestamp"""
+        try:
+            # Determina la cartella logs in base al contesto di esecuzione
+            if getattr(sys, 'frozen', False):
+                # Se siamo in un EXE, usa la directory dell'EXE
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                # Se siamo in development, usa la directory dello script
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            log_dir = os.path.join(base_dir, "logs")
+            
+            # Verifica se 'logs' esiste come FILE (errore comune)
+            if os.path.exists(log_dir) and os.path.isfile(log_dir):
+                # Se esiste come file, eliminalo
+                os.remove(log_dir)
+                self.write_to_terminal("⚠️ Rimosso file 'logs' esistente\n")
+            
+            # Crea la cartella logs se non esiste
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+            
+            # Nome file log con timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_filename = os.path.join(log_dir, f"terminal_log_{timestamp}.txt")
+            
+            # Apri file in modalità write
+            self.log_file = open(log_filename, 'w', encoding='utf-8', buffering=1)
+            
+            # Scrivi header nel log
+            self.log_file.write(f"=== SHRI Terminal Log ===\n")
+            self.log_file.write(f"Sessione avviata: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            self.log_file.write(f"Directory: {log_dir}\n")
+            self.log_file.write(f"{'='*50}\n\n")
+            self.log_file.flush()
+            
+            # Mostra messaggio di successo
+            self.write_to_terminal(f"📝 Logging attivo: {os.path.basename(log_filename)}\n")
+            
+        except PermissionError as e:
+            # Errore di permessi - prova percorso alternativo
+            try:
+                # Usa la directory temporanea dell'utente
+                import tempfile
+                log_dir = os.path.join(tempfile.gettempdir(), "SHRI_logs")
+                
+                if not os.path.exists(log_dir):
+                    os.makedirs(log_dir, exist_ok=True)
+                
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_filename = os.path.join(log_dir, f"terminal_log_{timestamp}.txt")
+                
+                self.log_file = open(log_filename, 'w', encoding='utf-8', buffering=1)
+                
+                self.log_file.write(f"=== SHRI Terminal Log ===\n")
+                self.log_file.write(f"Sessione avviata: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                self.log_file.write(f"Directory alternativa (permessi): {log_dir}\n")
+                self.log_file.write(f"{'='*50}\n\n")
+                self.log_file.flush()
+                
+                self.write_to_terminal(f"📝 Logging attivo (temp): {os.path.basename(log_filename)}\n")
+                self.write_to_terminal(f"⚠️ Percorso: {log_dir}\n")
+                
+            except Exception as e2:
+                self.write_to_terminal(f"❌ Errore logging (anche fallback): {e2}\n")
+                self.log_enabled = False
+                
+        except Exception as e:
+            self.write_to_terminal(f"⚠️ Errore setup logging: {e}\n")
+            self.write_to_terminal(f"💡 Prova ad eseguire come amministratore o controlla i permessi\n")
+            self.log_enabled = False
+    
+    def log_to_file(self, text):
+        """Scrive nel file di log"""
+        if self.log_enabled and self.log_file:
+            try:
+                # Rimuovi codici ANSI prima di scrivere nel log
+                import re
+                clean_text = re.sub(r'\x1b\[[0-9;]*m', '', text)
+                clean_text = re.sub(r'\x1b\[\?[0-9]+[hl]', '', clean_text)
+                clean_text = re.sub(r'\x1b\[[0-9]+;[0-9]+[Hf]', '', clean_text)
+                clean_text = re.sub(r'\x1b\[[0-9]*[ABCDEFGJKST]', '', clean_text)
+                
+                self.log_file.write(clean_text)
+                self.log_file.flush()
+            except Exception as e:
+                print(f"Errore scrittura log: {e}")
+    
+    def toggle_logging(self):
+        """Attiva/disattiva il logging"""
+        if self.log_enabled:
+            self.log_enabled = False
+            if self.log_file:
+                self.log_file.write(f"\n{'='*50}\n")
+                self.log_file.write(f"Logging disattivato: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                self.log_file.close()
+                self.log_file = None
+            self.write_to_terminal("📝 Logging disattivato\n")
+        else:
+            self.setup_logging()
+    
+    def toggle_logging_ui(self):
+        """Gestisce il toggle del logging e aggiorna il pulsante"""
+        self.toggle_logging()
+        if self.log_enabled:
+            self.log_toggle_btn.configure(text="📝 Log ON", fg_color="blue")
+        else:
+            self.log_toggle_btn.configure(text="📝 Log OFF", fg_color="gray")
+    
+    def close_log(self):
+        """Chiude il file di log"""
+        if self.log_file:
+            try:
+                self.log_file.write(f"\n{'='*50}\n")
+                self.log_file.write(f"Sessione terminata: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                self.log_file.close()
+            except:
+                pass
+    
     def pack(self, **kwargs):
         """Impacchetta il frame del terminale"""
         self.terminal_frame.pack(**kwargs)
@@ -844,6 +985,10 @@ class ConPTYTerminal:
         """Pulisce le risorse"""
         self.running = False
         self._cancel_scheduled_progress()
+        
+        # Chiudi il log
+        self.close_log()
+        
         if self.pty:
             try:
                 self.pty.close()
@@ -2249,7 +2394,8 @@ def run_upload():
     tag_value = tag_entry.get().strip()
     service_value = service_entry.get().strip()
     edition_value = edition_entry.get().strip()
-
+    custom_args = custom_args_entry.get().strip()
+    
     # Controllo checkbox seed
     do_seed = seed_var.get()
     if do_seed:
@@ -2261,6 +2407,11 @@ def run_upload():
     is_personal_release = personal_release_var.get()
     if is_personal_release:
         upload_cmd += " --personalrelease"
+        
+    # Controllo checkbox debug
+    is_debug_mode = debug_var.get()
+    if is_debug_mode:
+        upload_cmd += " --debug -siu -s 0 -ns"
 
     if imdb_id:
         upload_cmd += f" --imdb {imdb_id}"
@@ -2274,6 +2425,8 @@ def run_upload():
         upload_cmd += f" --service {service_value}"
     if edition_value:
         upload_cmd += f" --edition {edition_value}"
+    if custom_args:
+        upload_cmd += f" {custom_args}"
 
     # Esegue l'upload nel terminale integrato con parser ANSI
     if venv_path:
@@ -2287,6 +2440,10 @@ def run_upload():
             
             if is_personal_release:
                 args.append('--personalrelease')
+                
+            if is_debug_mode:
+                args.extend(['--debug', '-siu', '-s', '0', '-ns'])
+                
             if imdb_id:
                 args.extend(['--imdb', imdb_id])
             if tmdb_id:
@@ -2299,6 +2456,12 @@ def run_upload():
                 args.extend(['--service', service_value])
             if edition_value:
                 args.extend(['--edition', edition_value])
+            if custom_args:
+                try:
+                    custom_args_list = shlex.split(custom_args)
+                    args.extend(custom_args_list)
+                except Exception:
+                    args.append(custom_args)
             
             args_str = ' '.join(args)
             
@@ -2372,6 +2535,25 @@ edition_entry = ctk.CTkEntry(metadata_inner_frame, placeholder_text="Edizione (o
 edition_entry.pack(side="left", padx=(5, 10), pady=10)
 ToolTip(edition_entry, "Inserisci una versione speciale del film (opzionale).\nEsempio: HYBRID, Extended, Remastered, Director's Cut.")
 
+# === TERZA RIGA: CUSTOM ARGS ===
+custom_args_frame = ctk.CTkFrame(app)
+custom_args_frame.pack(pady=5, fill="x", padx=20)
+
+custom_args_inner_frame = ctk.CTkFrame(custom_args_frame, fg_color="transparent")
+custom_args_inner_frame.pack(expand=True)
+
+custom_args_entry = ctk.CTkEntry(
+    custom_args_inner_frame, 
+    placeholder_text="Parametri custom (opzionale)", 
+    width=460
+)
+custom_args_entry.pack(side="left", padx=10, pady=10)
+ToolTip(
+    custom_args_entry, 
+    "Inserisci parametri aggiuntivi personalizzati.\n"
+    "Esempio: --desclink https://... --desc \"Descrizione\"\n"
+    "I parametri verranno aggiunti al comando upload."
+)
 
 # Checkbox per seed torrent
 seed_var = tk.BooleanVar(value=False)
@@ -2384,6 +2566,12 @@ personal_release_var = tk.BooleanVar(value=False)
 personal_release_checkbox = ctk.CTkCheckBox(app, text="Personal Release", variable=personal_release_var)
 personal_release_checkbox.pack(pady=10)
 ToolTip(personal_release_checkbox, "Se selezionato, il torrent sarà marcato come Personal Release. Di default è NO.")
+
+# Checkbox per modalità debug
+debug_var = tk.BooleanVar(value=False)
+debug_checkbox = ctk.CTkCheckBox(app, text="Debug Mode", variable=debug_var)
+debug_checkbox.pack(pady=10)
+ToolTip(debug_checkbox, "Se selezionato, attiva la modalità debug con parametri: --debug -siu -s 0 -ns. Di default è NO.")
 
 upload_btn = ctk.CTkButton(app, text="Upload", command=run_upload)
 upload_btn.pack(pady=10)
