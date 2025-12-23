@@ -9,12 +9,12 @@ Un ringraziamento speciale a lui per aver creato questo progetto.
 ### 🖥️ **Interfaccia Grafica Intuitiva:**
   - **Interfaccia user-friendly** con layout responsive per tutti i tipi di schermo
   - **Selezione file/cartelle** tramite dialog grafici (niente linea di comando!)
-  - **Campi compilabili per IMDb ID, TMDb ID, TYPE, TAG gruppo, piattaforma streaming, edizione (tutti su una sola riga per risparmiare spazio)
-  - **Campo parametri custom per aggiungere argomenti personalizzati al comando upload
+  - **Campi compilabili** per IMDb ID, TMDb ID, TYPE, TAG gruppo, piattaforma streaming, edizione (tutti su una sola riga per risparmiare spazio)
+  - **Campo parametri custom** per aggiungere argomenti personalizzati al comando upload
   - **Combobox intelligenti** per tipo rilascio (Film MKV/Disco, Serie Episodio/Stagione)
-  - **Checkbox compatte su una riga: Seed automatico, Personal Release, Debug Mode
+  - **Checkbox compatte** su una riga: Seed automatico, Personal Release, Debug Mode
   - **Tooltip informativi** su ogni elemento per guidare l'utente
-  - **Sistema di logging con salvataggio automatico su file timestampati nella cartella logs/
+  - **Sistema di logging** con salvataggio automatico su file timestampati nella cartella logs/
 
 ### 🔧 **Setup e Configurazione Automatica:**
   - **Setup completamente automatico** con un solo click
